@@ -1,0 +1,107 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+
+#define MAX_PATH 4096
+#define MAX_LINE 1024
+
+// Supported extensions
+const char* imageExts[] = {".png", ".bmp", ".dds", ".tga"};
+const char* videoExts[] = {".mp4", ".avi", ".mov", ".mkv"};
+
+// Struct to hold asset file information
+typedef struct {
+    char filePath[MAX_PATH];
+    long long fileSize;
+} FileRecord;
+
+FileRecord* fileList = NULL;
+size_t fileCount = 0;
+long long totalBytes = 0;
+
+// Check if filename ends with a specific extension (case-insensitive)
+int strEndsWith(const char* str, const char* suffix) {
+    if (!str || !suffix) return 0;
+    size_t lenStr = strlen(str);
+    size_t lenSuffix = strlen(suffix);
+    return (lenSuffix <= lenStr) &&
+           (strcasecmp(str + lenStr - lenSuffix, suffix) == 0);
+}
+
+// Check if a file is a supported image or video
+int isSupportedAsset(const char* filename) {
+    for (int i = 0; i < 4; ++i)
+        if (strEndsWith(filename, imageExts[i])) return 1;
+    for (int i = 0; i < 4; ++i)
+        if (strEndsWith(filename, videoExts[i])) return 1;
+    return 0;
+}
+
+// Add a valid file to the result list
+void addFileRecord(const char* filepath, long long size) {
+    FileRecord* temp = realloc(fileList, (fileCount + 1) * sizeof(FileRecord));
+    if (!temp) {
+        fprintf(stderr, "Memory allocation failed\n");
+        return;
+    }
+    fileList = temp;
+    strncpy(fileList[fileCount].filePath, filepath, MAX_PATH - 1);
+    fileList[fileCount].filePath[MAX_PATH - 1] = '\0';
+    fileList[fileCount].fileSize = size;
+    totalBytes += size;
+    fileCount++;
+}
+
+// Recursively scan a directory for supported assets
+void scanDirectory(const char* dirPath) {
+    DIR* dir = opendir(dirPath);
+    if (!dir) {
+        fprintf(stderr, "Cannot open directory: %s\n", dirPath);
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char fullPath[MAX_PATH];
+        snprintf(fullPath, MAX_PATH, "%s/%s", dirPath, entry->d_name);
+
+        struct stat statbuf;
+        if (stat(fullPath, &statbuf) != 0) {
+            fprintf(stderr, "Failed to stat: %s\n", fullPath);
+            continue;
+        }
+
+        if (S_ISDIR(statbuf.st_mode)) {
+            scanDirectory(fullPath);  // Recursive call
+        } else if (S_ISREG(statbuf.st_mode) && isSupportedAsset(entry->d_name)) {
+            addFileRecord(fullPath, (long long)statbuf.st_size);
+        }
+    }
+
+    closedir(dir);
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <directory_path>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    scanDirectory(argv[1]);
+
+    printf("Found %zu supported asset(s):\n", fileCount);
+    for (size_t i = 0; i < fileCount; ++i) {
+        printf("%s (%lld bytes)\n", fileList[i].filePath, fileList[i].fileSize);
+    }
+    printf("Total size: %lld bytes\n", totalBytes);
+
+    free(fileList);
+    return EXIT_SUCCESS;
+}
