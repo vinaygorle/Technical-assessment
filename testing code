@@ -1,0 +1,104 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
+
+#define MAX_PATH 4096
+#define MAX_FILES 1000
+
+const char* image_exts[] = { ".png", ".bmp", ".dds", ".tga" };
+const char* video_exts[] = { ".mp4", ".avi", ".mov", ".mkv" };
+
+typedef struct {
+    char path[MAX_PATH];
+    long long size;
+} FileInfo;
+
+FileInfo files[MAX_FILES];
+int file_count = 0;
+long long total_size = 0;
+
+int is_valid_extension(const char* filename) {
+    const char* ext = strrchr(filename, '.');
+    if (!ext) return 0;
+    for (int i = 0; i < 4; ++i)
+        if (strcasecmp(ext, image_exts[i]) == 0 || strcasecmp(ext, video_exts[i]) == 0)
+            return 1;
+    return 0;
+}
+
+void scan_directory(const char* dirpath) {
+    DIR* dir = opendir(dirpath);
+    if (!dir) {
+        perror("Can't open directory");
+        return;
+    }
+
+    struct dirent* entry;
+    char fullpath[MAX_PATH];
+    struct stat st;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        snprintf(fullpath, MAX_PATH, "%s/%s", dirpath, entry->d_name);
+        if (stat(fullpath, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                scan_directory(fullpath);
+            } else if (S_ISREG(st.st_mode) && is_valid_extension(entry->d_name)) {
+                if (file_count < MAX_FILES) {
+                    strcpy(files[file_count].path, fullpath);
+                    files[file_count].size = st.st_size;
+                    total_size += st.st_size;
+                    file_count++;
+                }
+            }
+        }
+    }
+    closedir(dir);
+}
+
+void print_results() {
+    printf("Files Found:\n");
+    for (int i = 0; i < file_count; ++i) {
+        printf("%-50s %10lld bytes\n", files[i].path, files[i].size);
+    }
+    printf("\nTotal Files: %d\n", file_count);
+    printf("Total Size : %lld bytes\n", total_size);
+}
+
+// Utility to create mock files for testing
+void create_mock_file(const char* filepath, int size_bytes) {
+    FILE* f = fopen(filepath, "wb");
+    if (f) {
+        for (int i = 0; i < size_bytes; ++i) fputc('A', f);
+        fclose(f);
+    }
+}
+
+void setup_mock_data() {
+    system("mkdir -p Assets/Characters");
+    system("mkdir -p Assets/Videos");
+
+    create_mock_file("Assets/Characters/hero.png", 12345);
+    create_mock_file("Assets/Characters/npc.bmp", 8000);
+    create_mock_file("Assets/Videos/intro.mp4", 55000);
+    create_mock_file("Assets/Videos/cutscene.mkv", 99999);
+    create_mock_file("Assets/ignore.txt", 123); // Should not be counted
+}
+
+int main() {
+    setup_mock_data();
+
+    printf("Scanning directory: ./Assets\n\n");
+    scan_directory("Assets");
+    print_results();
+
+    return 0;
+}
+
+
+
+
